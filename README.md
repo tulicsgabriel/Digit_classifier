@@ -86,16 +86,6 @@ python realtime.py --device <input_index>
 
 ## Approach (why this works)
 
-```mermaid
-graph LR
-  A[Waveform (8 kHz)] --> B[MFCC 13 (drop c0)]
-  B --> C[Δ & ΔΔ]
-  C --> D[CMVN (train-only stats)]
-  D --> E[Stats pooling (mean/std/min/max)]
-  E --> F[SVM (RBF)]
-  F --> G[Digit (0–9)]
-```
-
 - **Sampling:** 8 kHz mono (native FSDD). Window **25 ms**, hop **10 ms**.
 - **Features:** 13 **MFCCs** with **c0 dropped** → 12; add **Δ** and **ΔΔ** → **36 dims/frame**.
 - **Normalization:** **CMVN** fit on **train** frames only; applied to val/test.
