@@ -1,0 +1,1207 @@
+You said:
+I want you to help me with the following coding challenge:
+
+"""
+LLM Coding Challenge - Digit Classification from Audio
+
+This challenge is designed to understand how you use LLMs as development partners — to code faster, reason better, and improve the quality and flexibility of what you build.
+
+You are expected to use tools like Cursor, Claude Code, or Gemini Code Assist for this coding challenge. We are just as interested in how you work with LLMs as we are in what you produce.
+
+Please record up to 30 minutes of your development process — any moments that show how you think, prompt, debug, or experiment. No need to narrate or polish anything. Just a raw glimpse into your process is more than enough.
+
+Time investment: A couple of hours — not days!
+What you will build
+
+Your task is to build a lightweight prototype that listens to spoken digits (0–9) and predicts the correct number. The goal is to find the lightest effective solution you can create within a couple of hours — with the support from LLM coding tools.
+
+If you have time, feel free to extend the challenge by simulating microphone noise or testing model robustness. But the core objective is simple: audio in, digit out — fast, clean, and functional.
+Bonus: Microphone Integration
+
+As an optional challenge, you can add live microphone input to test your model in real time. This helps explore real-world performance, including latency, noise handling, and usability under less controlled conditions.
+Dataset
+
+This challenge uses the Free Spoken Digit Dataset (FSDD), an open dataset of WAV recordings with spoken digits (0–9) spoken by multiple English speakers at 8kHz. You can access the Hugging Face dataset here.
+What to Submit
+
+Please submit your code together with a short README.md, and some recordings showing how you worked with an LLM during development. You can share everything via GitHub. The README should briefly explain your approach and present key results.
+Evaluation Criteria
+
+    Modeling choices: Are the audio features and model type appropriate for the task?
+    Model performance: Is performance measured with relevant metrics, and are the results strong?
+    Responsiveness: Is there minimal delay between input and output?
+    Code architecture: Is the code clean, modular, and easy to extend?
+    LLM collaboration: Is there strong evidence of prompting, debugging, or architectural reasoning with an LLM?
+    Creative energy: Does the submission reflect curiosity or a desire to push boundaries?
+"""
+
+don't jump ahead, just hear me out:
+
+I have two ideas:
+1. either I get a whisper model and test first how the model performs on the audios, check performance on speed, accuracy etc. So the idea would be to download the data, run whisper for everything, time it and write an evaluation script.
+
+2. I can do something themed, classical. download the data, write a python script to frame the speech signal into short frames (25 ms),  Frame step is usually 10 ms, which allows some overlap to
+the frames. calculate 13 mfcc values (delta and delta delta values, std, means, min, max) and standardize to have audio sample based value with some python wrapper and train an SVM model / random forest model as a multiclass classifier on them
+
+what do you say?
+ChatGPT said:
+
+Love both ideas. Here’s how I’d play it to hit the “lightest effective solution” target while still showing range.
+Recommendation (short)
+
+    Make #2 your core solution (MFCCs → lightweight classifier). It’ll be tiny, fast, and very explainable—perfect for “audio in, digit out” with low latency.
+
+    Add #1 as a comparative baseline/extension (Whisper or faster-whisper). It shows you can evaluate a foundation model and reason about trade-offs.
+
+This gives you a clean primary deliverable plus a “fun” extra that demonstrates breadth.
+Why this split works
+
+Approach 2 (classical)
+
+    ✔️ Extremely small model & dependencies (scikit-learn + librosa/torchaudio).
+
+    ✔️ Low latency on CPU (frame MFCCs, stats pool, predict).
+
+    ✔️ Easy to measure and ablate: features (MFCC vs log-mel), deltas, pooling, classifier type.
+
+    ✔️ Clear, modular code = good evaluation signal for architecture.
+
+Approach 1 (Whisper)
+
+    ✅ Great real-world baseline; shows how a general ASR stacks up on a narrow task.
+
+    ⚠️ Heavier and adds resampling + decoding overhead; sometimes transcribes “oh” vs “zero” inconsistently.
+
+    ➕ Nice for the optional mic demo (robust front end; you can still map text → digit).
+
+Concrete plan (no code yet)
+1) Repo scaffold
+
+fsdd-digit-classifier/
+  ├─ src/
+  │   ├─ data.py          # download + split + resample if needed
+  │   ├─ features.py      # framing, MFCC(+Δ, ΔΔ), CMVN, pooling
+  │   ├─ models.py        # SVM/RBF, LogisticReg, RandomForest; load/save
+  │   ├─ train.py         # fit + persist scaler + model
+  │   ├─ eval.py          # accuracy, F1, confusion, latency, RTF
+  │   ├─ realtime.py      # mic capture -> VAD -> features -> predict
+  │   └─ whisper_eval.py  # ASR baseline: decode -> map text->digit -> metrics
+  ├─ notebooks/           # quick EDA (optional)
+  ├─ prompts/             # your LLM chats or summaries (to showcase collab)
+  ├─ README.md
+  └─ requirements.txt / pyproject.toml
+
+2) Data & splits
+
+    Load from HF dataset (8 kHz WAV).
+
+    Two split regimes (report both!):
+
+        Speaker-dependent: random stratified split (easier; shows upper bound).
+
+        Speaker-independent: leave-one-speaker-out or group-k-fold by speaker (harder; shows real generalization).
+
+    Keep a tiny validation set for model selection to avoid peeking at test.
+
+3) Features (classical path)
+
+    Pre-emphasis (optional), framing: 25 ms window, 10 ms hop.
+
+    MFCCs: 13–20 coeffs + Δ and ΔΔ → 39–60 dims/frame.
+
+    CMVN: compute mean/std on training set only; apply to val/test.
+
+    Temporal pooling to fixed length per utterance:
+
+        mean, std, min, max (and optionally percentiles) across time → ~ (4 × feature_dim) vector.
+
+        Add simple duration & energy stats as extra scalars.
+
+    This keeps it scikit-learn friendly and blazing fast.
+
+4) Models to try (in order)
+
+    Logistic Regression (multi-class, lbfgs) — surprisingly strong baseline.
+
+    SVM (RBF) — tune C, γ; often best on pooled MFCCs.
+
+    Random Forest — decent, quick; nice for feature importance (roughly).
+
+    Persist: StandardScaler (for pooled features) + model via joblib.
+
+5) Metrics & latency
+
+    Report accuracy, macro-F1, and confusion matrix.
+
+    Latency:
+
+        Feature time + inference time (ms per file) on CPU.
+
+        Real-time factor (RTF) = processing_time / audio_duration (want < 1).
+
+    Also show model size (KB/MB) and cold vs warm predict timings.
+
+6) Robustness extras (nice-to-have)
+
+    Augmentations: background noise SNR sweeps, time shift, small speed/pitch perturb, simple reverb.
+
+    Mic mismatch: band-limit or resample to simulate different mics.
+
+    Re-evaluate accuracy vs SNR to produce a small robustness plot.
+
+7) Optional microphone demo
+
+    Use sounddevice (or pyaudio) for capture.
+
+    Simple VAD: energy threshold or webrtcvad.
+
+    On keypress/timeout: grab chunk → same feature pipeline → instant prediction.
+
+    Print top-k probabilities and show a tiny ASCII bar or GUI line.
+
+8) Whisper baseline (separate script)
+
+    Use faster-whisper (CTranslate2) or OpenAI Whisper; resample to 16 kHz internally as needed.
+
+    Decode each clip → parse the first integer word it hears:
+
+        Map text variants to digits: {“oh”, “zero”}→0; “to/too/two”→2; “for/four”→4; handle hyphens, punctuation.
+
+    Measure:
+
+        Accuracy against labels.
+
+        End-to-end time (I/O + resample + ASR + parse).
+
+        Model footprint (e.g., tiny/base sizes).
+
+    Compare table: Classical vs Whisper on accuracy, latency, size.
+
+What will likely happen (intuition)
+
+    Classical (MFCC + SVM): very high accuracy on speaker-dependent; modest drop on speaker-independent, still strong. Latency negligible.
+
+    Whisper: accuracy strong but not perfect due to homophones and short utterances; latency and size heavier; shines under noisier/real-mic conditions.
+
+README shape (keep it crisp)
+
+    Problem & dataset (one paragraph).
+
+    Approach
+
+        Classical pipeline diagram (wave → MFCCs → pooling → SVM).
+
+        Whisper baseline (wave → ASR → text → digit).
+
+    How to run
+
+        python -m src.train …, python -m src.eval …, python -m src.realtime …, python -m src.whisper_eval …
+
+    Results (two tables + confusion matrix images).
+
+    Latency & model size.
+
+    Robustness (brief).
+
+    LLM collaboration (link to prompts/ + short notes on what changed because of LLM feedback).
+
+    Future work (tiny CNN over log-mel, better VAD, on-device quantization).
+
+Pitfalls to watch
+
+    Don’t leak test stats into scaler or hyperparam tuning.
+
+    Keep feature normalization fit on train only.
+
+    Pooling: verify shapes so every utterance → fixed length.
+
+    For Whisper mapping, handle “oh/zero”, “for/four”, “to/too/two” explicitly.
+
+    If you add deltas, compute them before pooling (on frame sequence), not after.
+
+If you want me to take the next step
+
+I can sketch the exact function signatures and CLI arguments so you can drop in code fast, or give you a minimal baseline spec (feature dims, default hyperparams, and evaluation script outline) you can implement straight away.
+
+You said:
+okay, I'll go with the MFCC idea first, that's a classical and good idea. so then, I need to handle the data first. Should I download the data? It's better if I access the data with Python, HF library
+
+https://huggingface.co/datasets/mteb/free-spoken-digit-dataset/viewer/default/train?p=26&views%5B%5D=train&views%5B%5D=test
+
+this is where the data lives
+
+ChatGPT said:
+
+Short answer: don’t scrape/download manually from the page. Load it programmatically with the Hugging Face datasets library. It’ll fetch/cache ~20 MB for you and expose decoded audio + labels right away.
+Why this is best
+
+    The HF dataset already has train (2700) / test (300) splits and an audio column; you can start immediately.
+    Hugging Face+1
+
+    FSDD clips are 8 kHz WAV (so set the decoder to 8 kHz and you’re done).
+    GitHub
+    GitHub
+
+    datasets.Audio can resample on the fly, so your pipeline sees consistent sampling without extra code.
+    Hugging Face
+
+Minimal starter (what I’d actually run)
+
+# pip install datasets soundfile librosa scikit-learn
+from datasets import load_dataset, Audio
+
+# 1) Load & auto-cache (no manual download)
+ds = load_dataset("mteb/free-spoken-digit-dataset")  # ~19.6 MB total
+
+# 2) Ensure 8 kHz throughout (matches FSDD)
+ds = ds.cast_column("audio", Audio(sampling_rate=8000))
+
+# 3) Make a small val split from train (stratified)
+splits = ds["train"].train_test_split(test_size=0.1, stratify_by_column="label", seed=42)
+train, val, test = splits["train"], splits["test"], ds["test"]
+
+# Peek
+ex = train[0]["audio"]
+print(ex["array"].shape, ex["sampling_rate"])  # (...,), 8000
+print(train.features["label"].names)           # ['0', '1', ..., '9']
+
+If you want to stream (no full local copy)
+
+ds_stream = load_dataset("mteb/free-spoken-digit-dataset", split="train", streaming=True)
+first = next(iter(ds_stream))
+
+One gotcha: speaker-aware splits
+
+This HF version exposes only audio and label columns (no speaker ID). If you want speaker-independent evaluation, you have two easy paths:
+
+    Use the original repo (filenames like 2_jackson_32.wav let you parse speaker = jackson), then load locally and parse speaker from the filename.
+    GitHub
+
+    Check whether audio["path"] is populated in your environment; if so, you can regex the speaker from the filename. If it’s None (common with Parquet-embedded audio), prefer option 1.
+
+TL;DR
+
+Work directly from Hugging Face via load_dataset. It’s the fastest, cleanest way to get going with your MFCC→classifier pipeline, and you can always switch to the original repo later if you need speaker-based splits. Splits + size are already defined on HF; audio is 8 kHz; and datasets.Audio handles resampling seamlessly.
+Hugging Face+2Hugging Face+2
+GitHub
+
+Want me to drop in the MFCC feature extraction + pooling snippet next?
+
+You said:
+the audios shouldn't be 16kHz?
+
+ChatGPT said:
+
+Great Q — FSDD is natively 8 kHz, mono WAV. That’s how it was recorded and released, and most mirrors keep it that way.
+GitHub
+TensorFlow
+Kaggle
+
+For your MFCC pipeline, I’d just stay at 8 kHz:
+
+    25 ms window ⇒ 200 samples; 10 ms hop ⇒ 80 samples.
+
+    13–20 MFCCs (+Δ, ΔΔ) work fine; speech cues for digits live <4 kHz, so 8 kHz (Nyquist 4 kHz) is plenty.
+
+Gotchas:
+
+    If you use librosa.load, set sr=8000 (otherwise it resamples to 22050).
+
+    With 🤗 Datasets: ds = ds.cast_column("audio", Audio(sampling_rate=8000)) to keep everything consistent.
+
+    If you later test Whisper, it internally resamples to 16 kHz—no need to pre-resample for the classical model.
+
+If you want, I can drop in a tiny MFCC+pooling function set up for 8 kHz so you can plug it straight into scikit-learn.
+
+You said:
+understood, thank you! does it need peak normalization?
+
+did this:
+"""
+from datasets import load_dataset, Audio
+
+# 1) Load & auto-cache (no manual download)
+ds = load_dataset("mteb/free-spoken-digit-dataset")  # ~19.6 MB total
+
+# 2) Ensure 8 kHz throughout (matches FSDD)
+ds = ds.cast_column("audio", Audio(sampling_rate=8000))
+
+# 3) Make a small val split from train (stratified)
+splits = ds["train"].train_test_split(test_size=0.1, stratify_by_column="label", seed=42)
+train, val, test = splits["train"], splits["test"], ds["test"]
+
+# Peek
+ex = train[0]["audio"]
+print(ex["array"].shape, ex["sampling_rate"])  # (...,), 8000
+print(train.features["label"].names)
+
+"""
+
+got: ImportError: To support decoding audio data, please install 'torchcodec'.
+
+ChatGPT said:
+
+Great q’s — two parts:
+1) Peak normalization?
+
+You don’t need it for an MFCC→classifier pipeline. MFCCs (especially if you drop c0) are largely level-invariant, and CMVN (cepstral mean/var norm) will wipe out residual loudness differences. I’d skip peak/RMS normalization at the waveform level and do:
+
+    MFCC(+Δ, ΔΔ) on the raw float signal,
+
+    CMVN fit on the training set and applied to val/test,
+
+    Optionally drop c0 (or log-energy) if you want even less sensitivity to gain.
+
+2) The torchcodec ImportError
+
+Hugging Face datasets recently switched the Audio backend to TorchCodec, so decoding now requires installing it (and having FFmpeg on your system). That’s why you saw:
+
+    ImportError: To support decoding audio data, please install 'torchcodec'.
+    app.semanticdiff.com
+    GitHub
+
+Fix (recommended)
+
+# core libs
+pip install -U datasets torchcodec librosa soundfile scikit-learn
+
+# system FFmpeg (needed by torchcodec)
+# macOS (Homebrew)
+brew install ffmpeg
+# Ubuntu/Debian
+sudo apt-get update && sudo apt-get install -y ffmpeg
+# Windows (PowerShell; requires winget)
+winget install Gyan.FFmpeg
+
+Re-run your snippet unchanged:
+
+from datasets import load_dataset, Audio
+ds = load_dataset("mteb/free-spoken-digit-dataset")
+ds = ds.cast_column("audio", Audio(sampling_rate=8000, mono=True))
+ex = ds["train"][0]["audio"]   # triggers decode via torchcodec
+print(ex["array"].shape, ex["sampling_rate"])
+
+(Background: datasets v4.x migrated audio decoding to TorchCodec; torchaudio is also deprecating its own decoders in favor of TorchCodec.
+app.semanticdiff.com
+PyTorch Documentation+1
+)
+Option B (avoid torchcodec)
+
+Pin datasets to a pre-4.0 version that still used soundfile/librosa:
+
+pip install "datasets[audio]<4.0.0" librosa soundfile
+
+(Older docs mention soundfile/librosa backends.
+Hugging Face
+)
+
+If you want, I can drop in a tiny, battle-tested MFCC→stats-pooling function next (8 kHz defaults, Δ/ΔΔ, CMVN) so you can go straight to fitting an SVM.
+
+You said:
+okay, so this is what I have so far:
+
+"""
+from datasets import load_dataset, Audio
+from collections import Counter
+
+
+def get_hf_audio_data():
+
+    ds = load_dataset("mteb/free-spoken-digit-dataset")
+
+    ds = ds.cast_column("audio", Audio(sampling_rate=8000))
+
+    # Make a small val split from train (stratified)
+    splits = ds["train"].train_test_split(test_size=0.1, stratify_by_column="label", seed=42)
+    train, val, test = splits["train"], splits["test"], ds["test"]
+
+    return train, val, test
+
+
+if __name__ == "__main__":
+
+    # %%
+    train, val, test = get_hf_audio_data()
+
+
+
+    #%% Peek
+    ex = train[0]["audio"]
+    print(ex["array"].shape, ex["sampling_rate"])  # (...,), 8000
+    print(train.features["label"].names)
+    print(Counter(train.features["label"].names))
+"""
+
+prints are giving me:
+
+(3822,) 8000
+['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+Counter({'0': 1, '1': 1, '2': 1, '3': 1, '4': 1, '5': 1, '6': 1, '7': 1, '8': 1, '9': 1})
+
+Counter seems off, what's wrong?
+
+ChatGPT said:
+
+Nice—everything’s wired up. The Counter output is just misleading because you’re counting the class names list, not the dataset’s labels.
+Why you’re seeing that
+
+train.features["label"].names → ['0','1',...,'9'] (one of each).
+Counter(...) on that list will always give {each_label: 1}.
+Get real class counts
+
+Use the actual label column (train['label']), then map IDs → names:
+
+from collections import Counter
+
+def label_counts(ds):
+    counts = Counter(ds["label"])  # counts by integer id
+    id2name = {i: name for i, name in enumerate(ds.features["label"].names)}
+    return {id2name[i]: counts[i] for i in sorted(counts)}
+
+print("sizes:", len(train), len(val), len(test))
+print("train:", label_counts(train))
+print("val:  ", label_counts(val))
+print("test: ", label_counts(test))
+
+You should see ~uniform counts per class (since you stratified the val split, and the HF test split is already balanced).
+Quick sanity checks (optional)
+
+# Duration stats to spot odd files
+import numpy as np
+def durations(ds):
+    sr = ds.features["audio"].sampling_rate
+    return np.array([len(x["audio"]["array"]) / sr for x in ds])
+
+for name, split in [("train", train), ("val", val), ("test", test)]:
+    d = durations(split)
+    print(f"{name}: mean {d.mean():.3f}s, std {d.std():.3f}s, min {d.min():.3f}s, max {d.max():.3f}s")
+
+From here you’re ready to add MFCC → stats-pooling. Want me to drop in a compact extract_features(ds) that returns (X, y) with CMVN and Δ/ΔΔ done right?
+
+You said:
+gotcha! yes! let's do a function to get that!
+
+ChatGPT said:
+
+awesome—here’s a compact, production-ready extractor you can drop in.
+It does MFCC (+Δ, ΔΔ) at 8 kHz, applies CMVN fit on the training split only, then stats-pools (mean, std, min, max) over time so each utterance becomes a fixed-length vector.
+
+# pip install numpy librosa scikit-learn
+import numpy as np
+import librosa
+
+class MFCCStatsExtractor:
+    """
+    Waveform -> MFCC(+Δ,+ΔΔ) -> CMVN (fit on train frames) -> [mean,std,min,max] pooling -> fixed-size vector.
+    Defaults: 8 kHz, 25 ms window, 10 ms hop, 13 MFCCs (drop c0), +Δ,+ΔΔ -> 36 dims/frame, 144-dim pooled vector.
+    """
+    def __init__(
+        self,
+        sr=8000,
+        n_mfcc=13,
+        drop_c0=True,              # drop MFCC-0 (log-energy) for more loudness invariance
+        use_deltas=True,
+        use_delta_delta=True,
+        win_length_ms=25.0,
+        hop_length_ms=10.0,
+        n_fft=None,                # if None: next power of 2 >= win_length_samples
+        n_mels=40,
+        fmin=20.0,
+        fmax=None,                 # if None: sr/2
+        htk=True,                  # librosa MFCC defaults to HTK=False; HTK=True is common in ASR
+        eps=1e-8
+    ):
+        self.sr = sr
+        self.n_mfcc = n_mfcc
+        self.drop_c0 = drop_c0
+        self.use_deltas = use_deltas
+        self.use_delta_delta = use_delta_delta
+        self.win_length = int(round(win_length_ms * sr / 1000.0))
+        self.hop_length = int(round(hop_length_ms * sr / 1000.0))
+        if n_fft is None:
+            # next power of 2 >= win_length
+            n = 1
+            while n < self.win_length:
+                n <<= 1
+            self.n_fft = n
+        else:
+            self.n_fft = n_fft
+        self.n_mels = n_mels
+        self.fmin = fmin
+        self.fmax = fmax if fmax is not None else sr / 2
+        self.htk = htk
+        self.eps = eps
+
+        # Filled by fit()
+        self.cmvn_mean = None   # shape (D,)
+        self.cmvn_std = None    # shape (D,)
+
+    # ---------- low-level feature computation ----------
+    def _frame_mfcc_stack(self, y):
+        """
+        Compute MFCC (+Δ, +ΔΔ) frames [D x T].
+        """
+        # librosa expects float32 mono in [-1,1]; datasets already gives that
+        mfcc = librosa.feature.mfcc(
+            y=y,
+            sr=self.sr,
+            n_mfcc=self.n_mfcc,
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            win_length=self.win_length,
+            n_mels=self.n_mels,
+            fmin=self.fmin,
+            fmax=self.fmax,
+            htk=self.htk,
+        )  # [n_mfcc x T]
+
+        if self.drop_c0:
+            mfcc = mfcc[1:, :]  # drop coefficient 0 → dims = n_mfcc-1
+
+        feats = [mfcc]
+        if self.use_deltas:
+            d1 = librosa.feature.delta(mfcc, order=1)  # same shape
+            feats.append(d1)
+        if self.use_delta_delta:
+            d2 = librosa.feature.delta(mfcc, order=2)
+            feats.append(d2)
+
+        F = np.vstack(feats)  # [D x T]
+        return F
+
+    # ---------- CMVN fit over ALL train frames ----------
+    def fit(self, ds_train):
+        """
+        Accumulate mean/std over all frames from the training split.
+        ds_* are HuggingFace datasets with column 'audio' and label 'label'.
+        """
+        sum_vec, sumsq_vec, n_frames, D = None, None, 0, None
+
+        for ex in ds_train:
+            y = ex["audio"]["array"]
+            F = self._frame_mfcc_stack(y)  # [D x T]
+            if D is None:
+                D = F.shape[0]
+                sum_vec = np.zeros(D, dtype=np.float64)
+                sumsq_vec = np.zeros(D, dtype=np.float64)
+
+            # accumulate across time
+            sum_vec += F.sum(axis=1)
+            sumsq_vec += (F ** 2).sum(axis=1)
+            n_frames += F.shape[1]
+
+        mean = sum_vec / max(n_frames, 1)
+        var = sumsq_vec / max(n_frames, 1) - mean**2
+        std = np.sqrt(np.maximum(var, self.eps))
+
+        self.cmvn_mean = mean.astype(np.float32)
+        self.cmvn_std = std.astype(np.float32)
+        return self
+
+    # ---------- transform split to (X, y) ----------
+    def transform(self, ds_split):
+        """
+        Apply CMVN (using train stats) frame-wise, then pool to fixed vector.
+        Returns:
+            X: np.ndarray [N x (D * num_stats)]
+            y: np.ndarray [N]
+        """
+        assert self.cmvn_mean is not None, "Call .fit(train_ds) before .transform(...)"
+        X, y = [], []
+        for ex in ds_split:
+            yi = ex["audio"]["array"]
+            F = self._frame_mfcc_stack(yi)               # [D x T]
+            # CMVN (broadcast across time)
+            F = (F - self.cmvn_mean[:, None]) / (self.cmvn_std[:, None] + self.eps)
+
+            # stats pooling over time
+            stats = [
+                F.mean(axis=1),
+                F.std(axis=1),
+                F.min(axis=1),
+                F.max(axis=1),
+            ]  # each [D]
+            xi = np.concatenate(stats, axis=0)           # [4D]
+            X.append(xi.astype(np.float32))
+            y.append(ex["label"])
+
+        X = np.stack(X, axis=0)  # [N x 4D]
+        y = np.asarray(y, dtype=np.int64)
+        return X, y
+
+    # convenience
+    def fit_transform(self, ds_train):
+        self.fit(ds_train)
+        return self.transform(ds_train)
+
+Usage with your splits
+
+from datasets import load_dataset, Audio
+
+# Load FSDD at 8 kHz and make train/val/test (your code)
+ds = load_dataset("mteb/free-spoken-digit-dataset")
+ds = ds.cast_column("audio", Audio(sampling_rate=8000))
+splits = ds["train"].train_test_split(test_size=0.1, stratify_by_column="label", seed=42)
+train, val, test = splits["train"], splits["test"], ds["test"]
+
+# Extract features
+fe = MFCCStatsExtractor(sr=8000, n_mfcc=13, drop_c0=True, use_deltas=True, use_delta_delta=True)
+X_tr, y_tr = fe.fit_transform(train)     # fits CMVN on train frames
+X_va, y_va = fe.transform(val)
+X_te, y_te = fe.transform(test)
+
+print(X_tr.shape, X_va.shape, X_te.shape)  # e.g., (2430, 144) if 4 stats * 36 dims/frame
+
+Train a tiny model (quick sanity)
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
+from sklearn.svm import SVC
+from sklearn.metrics import classification_report, accuracy_score
+
+# A small extra scaler after pooling helps SVMs
+clf = make_pipeline(
+    StandardScaler(with_mean=True, with_std=True),
+    SVC(kernel="rbf", C=10.0, gamma="scale", probability=False, random_state=42),
+)
+clf.fit(X_tr, y_tr)
+pred = clf.predict(X_va)
+print("val acc:", accuracy_score(y_va, pred))
+print(classification_report(y_va, pred))
+
+Notes
+
+    No waveform peak/RMS normalization is needed; CMVN on MFCCs handles level variance.
+
+    If you prefer the classic 39-dim frame feature: set drop_c0=False (keep c0) so D=13, and keep Δ/ΔΔ → 39; pooling makes 156 dims.
+
+    For faster extraction, you can set n_mels=26 and keep results very similar.
+
+Want me to add a tiny train.py and eval.py scaffold next so you can run this from the CLI and save the model with joblib?
+You said:
+so this is what I have so far:
+"""
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Aug 17 12:17:29 2025
+
+@author: gabriel
+"""
+
+
+from datasets import load_dataset, Audio
+from collections import Counter
+import numpy as np
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
+from sklearn.svm import SVC
+from sklearn.metrics import classification_report, accuracy_score
+
+import get_features
+
+
+def get_hf_audio_data():
+
+    ds = load_dataset("mteb/free-spoken-digit-dataset")
+
+    ds = ds.cast_column("audio", Audio(sampling_rate=8000))
+
+    # Make a small val split from train (stratified)
+    splits = ds["train"].train_test_split(test_size=0.1, stratify_by_column="label", seed=42)
+    train, val, test = splits["train"], splits["test"], ds["test"]
+
+    return train, val, test
+
+
+def label_counts(ds):
+    counts = Counter(ds["label"])  # counts by integer id
+    id2name = {i: name for i, name in enumerate(ds.features["label"].names)}
+    return {id2name[i]: counts[i] for i in sorted(counts)}
+
+
+def durations(ds):
+    sr = ds.features["audio"].sampling_rate
+    return np.array([len(x["audio"]["array"]) / sr for x in ds])
+
+
+if __name__ == "__main__":
+
+    train, val, test = get_hf_audio_data()
+
+    # %% Peek
+    ex = train[0]["audio"]
+    print(ex["array"].shape, ex["sampling_rate"])  # (...,), 8000
+    print(train.features["label"].names)
+
+    print("sizes:", len(train), len(val), len(test))
+    print("train:", label_counts(train))
+    print("val:  ", label_counts(val))
+    print("test: ", label_counts(test))
+
+    for name, split in [("train", train), ("val", val), ("test", test)]:
+        d = durations(split)
+        print(
+            f"{name}: mean {d.mean():.3f}s, std {d.std():.3f}s, min {d.min():.3f}s, max {d.max():.3f}s"
+        )
+
+    # %% get mfcc features
+
+    fe = get_features.MFCCStatsExtractor(
+        sr=8000, n_mfcc=13, drop_c0=True, use_deltas=True, use_delta_delta=True
+    )
+    X_tr, y_tr = fe.fit_transform(train)  # fits CMVN on train frames
+    X_va, y_va = fe.transform(val)
+    X_te, y_te = fe.transform(test)
+
+    print(X_tr.shape, X_va.shape, X_te.shape)
+
+    #%% model
+    clf = make_pipeline(
+        StandardScaler(with_mean=True, with_std=True),
+        SVC(kernel="rbf", C=10.0, gamma="scale", probability=False, random_state=42),
+    )
+    clf.fit(X_tr, y_tr)
+    pred = clf.predict(X_va)
+    print("val acc:", accuracy_score(y_va, pred))
+    print(classification_report(y_va, pred))
+
+    #%%
+    pred = clf.predict(X_te)
+    print("val acc:", accuracy_score(y_te, pred))
+    print(classification_report(y_te, pred))
+"""
+
+
+this kinda looks like a main script, I just saved the mfcc calculation in a separate module, probably I will put the get data part as well. also, maybe a plotter for the peak in the data part, just to get a wave.
+
+better to get an AUC, classification report looks nice on the validation and on the test as well
+
+%runcell -n model /home/gabriel/Data/_Python_projects/digit_classifier/src/get_data.py
+val acc: 1.0
+              precision    recall  f1-score   support
+
+           0       1.00      1.00      1.00        27
+           1       1.00      1.00      1.00        27
+           2       1.00      1.00      1.00        27
+           3       1.00      1.00      1.00        27
+           4       1.00      1.00      1.00        27
+           5       1.00      1.00      1.00        27
+           6       1.00      1.00      1.00        27
+           7       1.00      1.00      1.00        27
+           8       1.00      1.00      1.00        27
+           9       1.00      1.00      1.00        27
+
+    accuracy                           1.00       270
+   macro avg       1.00      1.00      1.00       270
+weighted avg       1.00      1.00      1.00       270
+
+
+%runcell -i 4 /home/gabriel/Data/_Python_projects/digit_classifier/src/get_data.py
+val acc: 0.99
+              precision    recall  f1-score   support
+
+           0       1.00      1.00      1.00        30
+           1       1.00      1.00      1.00        30
+           2       1.00      1.00      1.00        30
+           3       0.97      1.00      0.98        30
+           4       1.00      1.00      1.00        30
+           5       1.00      1.00      1.00        30
+           6       0.94      0.97      0.95        30
+           7       1.00      1.00      1.00        30
+           8       1.00      0.97      0.98        30
+           9       1.00      0.97      0.98        30
+
+    accuracy                           0.99       300
+   macro avg       0.99      0.99      0.99       300
+weighted avg       0.99      0.99      0.99       300
+ChatGPT said:
+
+You’re flying 🚀 That result looks exactly like a healthy speaker-mixed split on FSDD (it’s an easy task). A few sharp next steps:
+1) AUC or not?
+
+    You don’t need ROC-AUC for a balanced 10-class task with ~99–100% accuracy. It’s useful only if you need probability quality (calibration) or want OvR curves for the README.
+
+    If you still want it, you need probabilities. Either set SVC(probability=True) (slower) or better, wrap an uncalibrated SVC with CalibratedClassifierCV (Platt scaling), then compute macro ROC-AUC.
+
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.metrics import roc_auc_score
+from sklearn.preprocessing import label_binarize
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
+
+# calibrated SVC (uses decision_function under the hood)
+clf_auc = make_pipeline(
+    StandardScaler(),
+    CalibratedClassifierCV(SVC(kernel="rbf", C=10.0, gamma="scale"), method="sigmoid", cv=5)
+)
+clf_auc.fit(X_tr, y_tr)
+proba = clf_auc.predict_proba(X_te)
+
+y_true_bin = label_binarize(y_te, classes=list(range(10)))
+auc_macro_ovr = roc_auc_score(y_true_bin, proba, average="macro", multi_class="ovr")
+print("Macro ROC-AUC (OvR):", auc_macro_ovr)
+
+2) Add a confusion matrix (great for README)
+
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+y_pred = clf.predict(X_te)
+cm = confusion_matrix(y_te, y_pred)
+disp = ConfusionMatrixDisplay(cm, display_labels=train.features["label"].names)
+disp.plot(values_format="d")
+plt.tight_layout(); plt.show()
+
+3) Measure latency + model size (evaluation criteria)
+
+import time, os, joblib
+from pathlib import Path
+
+# feature latency
+t0 = time.perf_counter(); X_te, y_te = fe.transform(test); t1 = time.perf_counter()
+# inference latency
+t2 = time.perf_counter(); _ = clf.predict(X_te); t3 = time.perf_counter()
+
+feat_ms = (t1 - t0) * 1000 / len(test)
+pred_ms = (t3 - t2) * 1000 / len(test)
+# real-time factor (RTF)
+dur_s = np.sum([len(ex["audio"]["array"]) / 8000 for ex in test])
+rtf = (t1 - t0 + t3 - t2) / dur_s
+print(f"Feature: {feat_ms:.2f} ms/utt | Inference: {pred_ms:.2f} ms/utt | RTF={rtf:.3f}")
+
+# size
+joblib.dump({"fe": fe, "clf": clf}, "model.joblib")
+print("Model file size:", Path("model.joblib").stat().st_size / 1024, "KB")
+
+4) (Important) Try a speaker-independent split
+
+Your near-perfect scores probably reflect speaker overlap (totally fine for the core demo). For a stronger result, do a group split by speaker if you can parse it from the file path (2_jackson_32.wav → speaker='jackson'). If paths aren’t available, skip this.
+
+import re
+from sklearn.model_selection import GroupShuffleSplit
+import numpy as np
+
+def get_speakers(ds_split):
+    spk = []
+    for ex in ds_split:
+        p = ex["audio"].get("path")  # may be None depending on backend
+        if not p:
+            return None  # can't do speaker split from HF cache
+        m = re.search(r"_(\w+)_\d+\.wav$", p)
+        spk.append(m.group(1) if m else None)
+    return spk
+
+speakers = get_speakers(ds["train"])
+if speakers and all(speakers):
+    gss = GroupShuffleSplit(test_size=0.1, random_state=42)
+    idx_tr, idx_va = next(gss.split(np.arange(len(ds["train"])), groups=speakers))
+    train_spk = ds["train"].select(idx_tr)
+    val_spk   = ds["train"].select(idx_va)
+    # re-fit features & model on speaker-independent split
+else:
+    print("Speaker IDs not available from path; skipping speaker-independent split.")
+
+Expect accuracy to dip a bit on speaker-independent; still should be strong.
+5) Tiny waveform/MFCC quick-look (for the “plotter”)
+
+import matplotlib.pyplot as plt
+import librosa.display
+
+ex = train[0]["audio"]["array"]
+plt.figure(); plt.plot(ex); plt.title("Waveform (8 kHz)"); plt.xlabel("samples"); plt.ylabel("amp"); plt.tight_layout(); plt.show()
+
+F = get_features.MFCCStatsExtractor(sr=8000)._frame_mfcc_stack(ex)  # [D x T]
+plt.figure()
+librosa.display.specshow(F[:13, :], x_axis="time")  # MFCCs only for display
+plt.title("MFCCs"); plt.colorbar(); plt.tight_layout(); plt.show()
+
+6) Minor nits
+
+    Your last print says "val acc:" for the test block — change to "test acc:".
+
+    Keep random seeds fixed for reproducibility (random_state on splits and models).
+
+    For the README, log: accuracy, macro-F1, confusion matrix image, latency (ms/utt and RTF), model size.
+
+If you want, I can turn this into a clean src/train.py, src/eval.py, and src/realtime.py skeleton with CLI args (and a joblib save/load) so you can run:
+
+python -m src.train --svm-c 10 --n-mfcc 13 --drop-c0 --deltas --delta-delta
+python -m src.eval --model model.joblib
+
+Your core is solid—now it’s just polish and robustness.
+
+You said:
+this is my code so far:
+"""
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Aug 17 12:17:29 2025
+
+@author: gabriel
+"""
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
+from sklearn.svm import SVC
+from sklearn.metrics import classification_report, accuracy_score
+import time, joblib
+import numpy as np
+from pathlib import Path
+
+import get_features
+import get_audio_data
+import utils
+
+
+if __name__ == "__main__":
+
+    train, val, test = get_audio_data.get_hf_audio_data()
+
+    # %% Peek into the data
+    ex = train[0]["audio"]
+    print(ex["array"].shape, ex["sampling_rate"])  # (...,), 8000
+    print(train.features["label"].names)
+
+    print("sizes:", len(train), len(val), len(test))
+    print("train:", utils.label_counts(train))
+    print("val:  ", utils.label_counts(val))
+    print("test: ", utils.label_counts(test))
+
+    for name, split in [("train", train), ("val", val), ("test", test)]:
+        d = utils.durations(split)
+        print(
+            f"{name}: mean {d.mean():.3f}s, std {d.std():.3f}s, min {d.min():.3f}s, max {d.max():.3f}s"
+        )
+
+    # %% Plot wave
+
+    # getting an example
+    example_audio = train[0]["audio"]["array"]
+    label = train[0]["label"]
+    utils.plot_wave_and_spectogram(example_audio, label)
+
+    # get other examples from 1 to 9
+    for label in range(1, 9):
+        # Get the first index where the label matches
+        index = next((i for i, item in enumerate(train) if item["label"] == label), None)
+
+        if index is not None:
+            example_audio = train[index]["audio"]["array"]
+            utils.plot_wave_and_spectogram(example_audio, label)
+    # %% get mfcc features
+
+    fe = get_features.MFCCStatsExtractor(
+        sr=8000, n_mfcc=13, drop_c0=True, use_deltas=True, use_delta_delta=True
+    )
+    X_tr, y_tr = fe.fit_transform(train)  # fits CMVN on train frames
+    X_va, y_va = fe.transform(val)
+    X_te, y_te = fe.transform(test)
+
+    print(X_tr.shape, X_va.shape, X_te.shape)
+
+    # %% model
+    clf = make_pipeline(
+        StandardScaler(with_mean=True, with_std=True),
+        SVC(kernel="rbf", C=10.0, gamma="scale", probability=False, random_state=42),
+    )
+    clf.fit(X_tr, y_tr)
+    pred = clf.predict(X_va)
+    print("val acc:", accuracy_score(y_va, pred))
+    print(classification_report(y_va, pred))
+
+    # %%
+    pred = clf.predict(X_te)
+    print("val acc:", accuracy_score(y_te, pred))
+    print(classification_report(y_te, pred))
+
+    # %%
+    y_pred = clf.predict(X_te)
+    utils.plot_and_save_confusion_matrix(
+        y_te, y_pred, train.features["label"].names, "confusion_matrix.png"
+    )
+
+    # %%
+
+    # feature latency
+    t0 = time.perf_counter()
+    X_te, y_te = fe.transform(test)
+    t1 = time.perf_counter()
+    # inference latency
+    t2 = time.perf_counter()
+    _ = clf.predict(X_te)
+    t3 = time.perf_counter()
+
+    feat_ms = (t1 - t0) * 1000 / len(test)
+    pred_ms = (t3 - t2) * 1000 / len(test)
+    # real-time factor (RTF)
+    dur_s = np.sum([len(ex["audio"]["array"]) / 8000 for ex in test])
+    rtf = (t1 - t0 + t3 - t2) / dur_s
+    print(
+        f"Feature calculation: {feat_ms:.2f} ms/utt | Prediction time: {pred_ms:.2f} ms/utt | RTF={rtf:.3f}"
+    )
+
+    # size
+    joblib.dump({"fe": fe, "clf": clf}, "model.joblib")
+    print("Model file size:", Path("model.joblib").stat().st_size / 1024, "KB")
+"""
+
+I think this sufficient for a lightweight prototype that listens to spoken digits (0–9) that predicts the correct number. Did I miss anything obvious? I don't have time to do a lot more, but I think the live microphone test would be an interesting one to test.
+
+So I have the model and I have the script the that calculate the features. I want to make a live microphone input platform to test your model in real time. I was thinking maybe this can be done in Flask or matplotlib?
+
+ChatGPT said:
+
+You’re in great shape. For a fast, clean live mic demo, skip Flask for now and go with a tiny terminal script using sounddevice. It records a short utterance, runs your saved fe + clf, and prints the top-k with latency. That hits the “bonus: mic integration” without yak-shaving web audio.
+
+Below is a drop-in realtime.py you can add to src/. It loads your model.joblib, records 1.0s of audio at 16 kHz (more devices support 16k), resamples to 8 kHz for your extractor, trims leading/trailing silence, and predicts.
+Install (once)
+
+pip install sounddevice librosa joblib numpy
+# system dependency for sounddevice (PortAudio):
+# macOS:  brew install portaudio
+# Ubuntu: sudo apt-get install -y python3-dev portaudio19-dev
+# Windows: pip install sounddevice (bundles binaries on most setups)
+
+src/realtime.py
+
+#!/usr/bin/env python3
+import argparse, time, sys
+from pathlib import Path
+import numpy as np
+import sounddevice as sd
+import joblib
+import librosa
+
+# -------- util --------
+def softmax_np(x):
+    x = x - np.max(x)
+    e = np.exp(x)
+    return e / np.sum(e)
+
+def record_once(seconds: float, sr: int) -> np.ndarray:
+    """Record a single-channel float32 clip for `seconds` at samplerate `sr`."""
+    print(f"🎙️  Recording {seconds:.2f}s... (sr={sr})")
+    audio = sd.rec(int(seconds * sr), samplerate=sr, channels=1, dtype="float32", blocking=False)
+    sd.wait()
+    return audio[:, 0].copy()
+
+def trim_silence(y: np.ndarray, top_db: float = 30.0) -> np.ndarray:
+    """Trim leading/trailing silence; fall back to original if empty."""
+    if y.size == 0:
+        return y
+    y_trim, _ = librosa.effects.trim(y, top_db=top_db)
+    return y_trim if y_trim.size > 0 else y
+
+def features_from_signal(fe, y: np.ndarray, sr_in: int) -> np.ndarray:
+    """Apply saved MFCCStatsExtractor to a raw signal (resample->frames->CMVN->pool)."""
+    if sr_in != fe.sr:
+        y = librosa.resample(y, orig_sr=sr_in, target_sr=fe.sr)
+    # Light normalization to avoid ultra-quiet captures
+    if np.max(np.abs(y)) > 0:
+        y = y / (np.max(np.abs(y)) + 1e-8)
+    y = trim_silence(y, top_db=30.0)
+
+    # Reuse the extractor's internals
+    F = fe._frame_mfcc_stack(y)  # [D x T]
+    F = (F - fe.cmvn_mean[:, None]) / (fe.cmvn_std[:, None] + fe.eps)
+    stats = [F.mean(axis=1), F.std(axis=1), F.min(axis=1), F.max(axis=1)]
+    x = np.concatenate(stats, axis=0).astype(np.float32)[None, :]  # [1 x 4D]
+    return x
+
+def main():
+    ap = argparse.ArgumentParser(description="Live microphone digit classifier (0–9).")
+    ap.add_argument("--model", type=str, default="model.joblib", help="Path to joblib with {'fe','clf'}.")
+    ap.add_argument("--mic-sr", type=int, default=16000, help="Microphone capture rate (Hz).")
+    ap.add_argument("--seconds", type=float, default=1.0, help="Duration to record per attempt (s).")
+    ap.add_argument("--topk", type=int, default=3, help="Show top-k results.")
+    args = ap.parse_args()
+
+    path = Path(args.model)
+    if not path.exists():
+        print(f"Model file not found: {path.resolve()}")
+        sys.exit(1)
+
+    bundle = joblib.load(path)
+    fe = bundle["fe"]
+    clf = bundle["clf"]
+    labels = [str(i) for i in range(10)]  # consistent with FSDD label order
+
+    print("Loaded model ✅")
+    print(f"- Feature SR: {fe.sr} Hz")
+    print(f"- Mic capture SR: {args.mic_sr} Hz")
+    print("Press ENTER to record; type 'q' + ENTER to quit.")
+
+    # warmup (allocates buffers, just to be neat)
+    _ = np.zeros(int(0.05 * args.mic_sr), dtype=np.float32)
+
+    while True:
+        try:
+            user = input("\n↩︎ ENTER to record (or q to quit): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            user = "q"
+        if user == "q":
+            print("Bye!")
+            break
+
+        y = record_once(args.seconds, args.mic_sr)
+
+        t0 = time.perf_counter()
+        X = features_from_signal(fe, y, sr_in=args.mic_sr)
+        t1 = time.perf_counter()
+        pred = clf.predict(X)[0]
+        # scores: prefer probabilities if available, else softmax(decision_function)
+        if hasattr(clf[-1], "predict_proba"):
+            probs = clf.predict_proba(X)[0]
+        elif hasattr(clf[-1], "decision_function"):
+            scores = clf.decision_function(X)[0]
+            probs = softmax_np(scores)
+        else:
+            probs = None
+        t2 = time.perf_counter()
+
+        # Report
+        print(f"→ Predicted digit: {pred}")
+        if probs is not None:
+            topk = min(args.topk, len(labels))
+            order = np.argsort(probs)[::-1][:topk]
+            print("   Top-k:")
+            for i in order:
+                bar = "▮" * int(round(probs[i] * 20))
+                print(f"   {labels[i]}  {probs[i]:.2f} {bar}")
+        print(f"Latency: feature { (t1-t0)*1000:.1f} ms | inference { (t2-t1)*1000:.1f} ms")
+
+if __name__ == "__main__":
+    main()
+
+How to run
+
+# from repo root (after training)
+python -m src.realtime --model model.joblib --seconds 1.0 --mic-sr 16000
+
+Tips:
+
+    If your mic is quiet, try --seconds 1.2 or speak closer; the script trims silence anyway.
+
+    If your device refuses --mic-sr 16000, try --mic-sr 44100 (it’ll resample down).
+
+Why not Flask right now?
+
+Browser audio means WebAudio/MediaRecorder → upload blob → Flask → predict. Totally doable, but it adds front-end code and CORS plumbing. For the challenge timeline, the CLI mic demo above gives you the bonus points with minimal risk. If you do want Flask later, structure it as:
+
+    POST /predict accepts WAV/PCM bytes, server runs fe/clf, returns JSON {digit, probs, latency_ms}.
+
+    A tiny HTML page with <button> + MediaRecorder to capture ~1s and fetch it to /predict.
+
+I can sketch that server + a 30-line HTML page if you decide to productize the demo, but the terminal script will already look great in the README and on video.
+
+If you want a last bit of polish, add:
+
+    --vad webrtc (optional): use webrtcvad to auto-start/stop on speech.
+
+    Save a short screencap of you running realtime.py to include in the repo.
+
+
